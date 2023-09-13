@@ -56,6 +56,12 @@ class Backtest:
 
 
     def funding_rate(self, target_funding_rate, health_factor):
+        # if health_factor > 2.0:
+        #     return 0
+        # if health_factor > 1:
+        #     return target_funding_rate
+        # return 2 * target_funding_rate
+
         max_fr = .25
         # max_fr = target_funding_rate * 2
         ltv = 1 / health_factor
@@ -73,6 +79,8 @@ class Backtest:
 
         row = self.get_row(start_date)
 
+        # print('start row', row)
+
         # Assume 10 ETH as collateral
         eth = 10
 
@@ -88,18 +96,29 @@ class Backtest:
 
         rows = self.get_rows(start_date, num_days)
         hf = 1.0
-        days_elapsed = 0
+        days = 0
+
+        apy_list = []
+        loan_values_list = []
+
         for row in rows:
             value_usd = eth * row['price']
             prev_hf = hf
             hf = value_usd / loan_usd
             fr = self.funding_rate(funding_rate, hf)
 
-            # print('use fr', fr, hf)
+            #print('use fr', fr, hf)
 
             # Yield
             delta_yield = eth * yield_rate * (1/365) * row['price']
             yield_usd += delta_yield
+
+            annualized_apy = (365 * delta_yield) / loan_usd
+
+            apy_list.append(annualized_apy)
+            loan_values_list.append(loan_usd)
+
+            #print('adding yield: %.2f, %.2f%%' % (delta_yield, 100 * annualized_apy))
 
             # Funding if healthy
             if hf > 1.0:
@@ -125,25 +144,37 @@ class Backtest:
             if prev_hf < 1.0 and hf >= 1.0 and pending_funding_eth > 0:
                 # Harvest pending funding
                 pending_funding_usd = pending_funding_eth * row['price']
-                # print('harvest funding', pending_funding_eth, pending_funding_usd)
+                #print('===>harvest funding', pending_funding_eth, pending_funding_usd)
                 eth -= pending_funding_eth
                 yield_usd += pending_funding_usd
                 pending_funding_eth = 0
 
-            days_elapsed += 1
+            days += 1
             # print('hf', hf)
 
         # print('yield_usd', yield_usd)
 
         pending_funding_usd = pending_funding_eth * row['price']
 
-        roi = yield_usd / loan_usd
-        apy = roi * (365 / days_elapsed)
+        loan_values_avg = sum(loan_values_list) / len(loan_values_list)
+
+        # roi = yield_usd / loan_usd
+        roi = yield_usd / loan_values_avg
+        apy = roi * (365 / days)
         # print('apy %.2f%%' % apy)
 
         # print('pending_funding_usd', pending_funding_usd)
 
+        apy_avg = sum(apy_list) / len(apy_list)
+
+        # print('apy_x %.2f%%' % (100 * apy_x))
+        # print('yield_usd', yield_usd)
+        # print('loan_usd ', loan_usd)
+        # print('days     ', days)
+
         return {
+            'apy_net': apy,
+            'apy_avg': apy_avg,
             'apy': apy,
             'last_health_factor': hf,
             'pending_funding_eth': pending_funding_eth,
